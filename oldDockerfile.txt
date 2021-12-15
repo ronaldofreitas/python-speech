@@ -1,0 +1,23 @@
+# Use an official lightweight Python image.
+# https://hub.docker.com/_/python
+FROM python:3.9-slim
+
+# Install production dependencies.
+RUN pip3 install Flask gunicorn google-cloud-storage google-cloud-speech srt
+#RUN pip3 install https://pypi.python.org/packages/db/06/e7ca923475431baf98e37b9627ca29903570b9e749f507d2902dcf222213/Pyrebase-3.0.10-py3-none-any.whl Flask gunicorn google-cloud-speech
+
+# Copy local code to the container image.
+WORKDIR /app
+COPY . .
+
+#CMD ["python", "app.py"]
+
+# Service must listen to $PORT environment variable.
+# This default value facilitates local development.
+ENV PORT 8080
+
+# Run the web service on container startup. Here we use the gunicorn
+# webserver, with one worker process and 8 threads.
+# For environments with multiple CPU cores, increase the number of workers
+# to be equal to the cores available.
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0 app:app
