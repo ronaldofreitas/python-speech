@@ -3,4 +3,4 @@ docker build -t ronaldofreitas/to-speech .
 
 pega o ID da imagem... docker images
 
-docker tag 4b287a73cd5b gcr.io/catalobyte-311413/catalobyte/to-speech && docker push gcr.io/catalobyte-311413/catalobyte/to-speech
+docker tag 1ee331b494e3 gcr.io/catalobyte-311413/catalobyte/to-speech && docker push gcr.io/catalobyte-311413/catalobyte/to-speech

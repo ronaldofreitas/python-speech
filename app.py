@@ -5,6 +5,14 @@ from google.cloud import speech
 from google.cloud import storage
 #import json
 
+'''
+https://stackoverflow.com/questions/54271749/error-with-enable-speaker-diarization-tag-in-google-cloud-speech-to-text?rq=1
+
+The enable_speaker_diarization=True parameter in speech.types.RecognitionConfig is available only in the library speech_v1p1beta1 at the moment, 
+so, you need to import that library in order to use that parameter, not the default speech one. 
+I did some modifications to your code and works fine for me. Take into account that you need to use a service account to run this code.
+'''
+
 def long_running_recognize(storage_uri, idioma):
     client = speech.SpeechClient()
 
@@ -111,6 +119,8 @@ def speechproc():
 
     blob = bucket_sub.blob(f'{userUid}/{index_manticore}/{file_id}.srt')
     blob.upload_from_string(data=srt.compose(subs), content_type='application/x-subrip')
+    blob.metadata = {'x-goog-meta-is-new': 'true'}
+    blob.patch()
 
     '''
     audio = speech.RecognitionAudio(uri=gs_uri)
