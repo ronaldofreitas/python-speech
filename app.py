@@ -110,7 +110,7 @@ def speechproc():
     '''
 
     blob = bucket_sub.blob(f'{userUid}/{index_manticore}/{file_id}.srt')
-    blob.upload_from_string(data=srt.compose(subs), content_type='text/plain')
+    blob.upload_from_string(data=srt.compose(subs), content_type='application/x-subrip')
 
     '''
     audio = speech.RecognitionAudio(uri=gs_uri)
