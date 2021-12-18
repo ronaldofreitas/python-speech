@@ -1,10 +1,11 @@
 from flask import Flask, request
 import srt
 from google.cloud import speech
+#from google.cloud import speech_v1
 #from google.cloud import speech_v1p1beta1 as speech
 from google.cloud import storage
 #import json
-
+import datetime
 '''
 https://stackoverflow.com/questions/54271749/error-with-enable-speaker-diarization-tag-in-google-cloud-speech-to-text?rq=1
 
@@ -13,81 +14,99 @@ so, you need to import that library in order to use that parameter, not the defa
 I did some modifications to your code and works fine for me. Take into account that you need to use a service account to run this code.
 '''
 
+
 def long_running_recognize(storage_uri, idioma):
+    
     client = speech.SpeechClient()
 
-    operation = client.long_running_recognize(
-        config = {
-            "enable_word_time_offsets": True,
-            "enable_automatic_punctuation": True,
-            "sample_rate_hertz": 16000,
-            "language_code": idioma,
-            "audio_channel_count": 1,
-            "encoding": "FLAC",
-        },
-        audio={
-            "uri": storage_uri
-        },
-    )
+    config = {
+        "language_code": idioma,
+        "sample_rate_hertz": 16000,
+        #"encoding": enums.RecognitionConfig.AudioEncoding.LINEAR16,
+        "encoding": "FLAC",
+        "audio_channel_count": 1,
+        "enable_word_time_offsets": True,
+        #"model": "video",
+        "enable_automatic_punctuation":True
+    }
+    audio = {"uri": storage_uri}
+
+    operation = client.long_running_recognize(config, audio)
+
+    print(u"Waiting for operation to complete...")
     response = operation.result()
-    subs = []
+    
+    return response
+
+def subtitle_generation(response):
+    bin_size=3.5
+    """We define a bin of time period to display the words in sync with audio. 
+    Here, bin_size = 3 means each bin is of 3 secs. 
+    All the words in the interval of 3 secs in result will be grouped togather."""
+    transcriptions = []
+    index = 0
+ 
     for result in response.results:
-        # First alternative is the most probable result
-        subs = break_sentences(40, subs, result.alternatives[0])
+        try:
+            if result.alternatives[0].words[0].start_time.seconds:
+                # bin start -> for first word of result
+                start_sec = result.alternatives[0].words[0].start_time.seconds 
+                start_microsec = result.alternatives[0].words[0].start_time.nanos * 0.001
+            else:
+                # bin start -> For First word of response
+                start_sec = 0
+                start_microsec = 0 
+            end_sec = start_sec + bin_size # bin end sec
+            
+            # for last word of result
+            last_word_end_sec = result.alternatives[0].words[-1].end_time.seconds
+            last_word_end_microsec = result.alternatives[0].words[-1].end_time.nanos * 0.001
+            
+            # bin transcript
+            transcript = result.alternatives[0].words[0].word
+            
+            index += 1 # subtitle index
 
-    return subs
+            for i in range(len(result.alternatives[0].words) - 1):
+                try:
+                    word = result.alternatives[0].words[i + 1].word
+                    word_start_sec = result.alternatives[0].words[i + 1].start_time.seconds
+                    word_start_microsec = result.alternatives[0].words[i + 1].start_time.nanos * 0.001 # 0.001 to convert nana -> micro
+                    word_end_sec = result.alternatives[0].words[i + 1].end_time.seconds
+                    word_end_microsec = result.alternatives[0].words[i + 1].end_time.nanos * 0.001
+
+                    if word_end_sec < end_sec:
+                        transcript = transcript + " " + word
+                    else:
+                        previous_word_end_sec = result.alternatives[0].words[i].end_time.seconds
+                        previous_word_end_microsec = result.alternatives[0].words[i].end_time.nanos * 0.001
+                        
+                        # append bin transcript
+                        transcriptions.append(srt.Subtitle(index, datetime.timedelta(0, start_sec, start_microsec), datetime.timedelta(0, previous_word_end_sec, previous_word_end_microsec), transcript))
+                        
+                        # reset bin parameters
+                        start_sec = word_start_sec
+                        start_microsec = word_start_microsec
+                        end_sec = start_sec + bin_size
+                        transcript = result.alternatives[0].words[i + 1].word
+                        
+                        index += 1
+                except IndexError:
+                    pass
+            # append transcript of last transcript in bin
+            transcriptions.append(srt.Subtitle(index, datetime.timedelta(0, start_sec, start_microsec), datetime.timedelta(0, last_word_end_sec, last_word_end_microsec), transcript))
+            index += 1
+        except IndexError:
+            pass
+    
+    # turn transcription list into subtitles
+    subtitles = srt.compose(transcriptions)
+
+    return subtitles
 
 
-def break_sentences(max_chars, subs, alternative):
-    firstword = True
-    charcount = 0
-    idx = len(subs) + 1
-    content = ""
 
-    for w in alternative.words:
-        if firstword:
-            # first word in sentence, record start time
-            start = w.start_time.ToTimedelta()
-
-        charcount += len(w.word)
-        content += " " + w.word.strip()
-
-        if ("." in w.word or "!" in w.word or "?" in w.word or
-                charcount > max_chars or
-                ("," in w.word and not firstword)):
-            # break sentence at: . ! ? or line length exceeded
-            # also break if , and not first word
-            subs.append(srt.Subtitle(index=idx,
-                                     start=start,
-                                     end=w.end_time.ToTimedelta(),
-                                     content=srt.make_legal_content(content)))
-            firstword = True
-            idx += 1
-            content = ""
-            charcount = 0
-        else:
-            firstword = False
-    return subs
-
-
-def write_srt(subs):
-    srt_file = "legenda.srt"
-    f = open(srt_file, 'w')
-    f.writelines(srt.compose(subs))
-    f.close()
-    return
-
-
-def write_txt(subs):
-    txt_file = "texto.txt"
-    f = open(txt_file, 'w')
-    for s in subs:
-        f.write(s.content.strip() + "\n")
-    f.close()
-    return
-
-
-speech_client = speech.SpeechClient()
+#speech_client = speech.SpeechClient()
 #bucket_json = storage.Client().get_bucket('catalobyte-json')
 #bucket_txt = storage.Client().get_bucket('catalobyte-texto')
 bucket_sub = storage.Client().get_bucket('verbana_subs')
@@ -105,10 +124,9 @@ def speechproc():
     idioma = data['idioma'];# !! APENAS PARA VERBANA, se for audiolake TEM QUE REMOVER !!
 
     storage_uri = gs_uri #"gs://catalobyte-output/1sPcgixNZobTGi1McrKK7UyaZUd2/o6h0z2g9c7/8445869181/1636311108576.flac"
-    idioma = idioma #"pt-BR"
-    subs = long_running_recognize(storage_uri, idioma)
-    #write_srt(subs)
-    #write_txt(subs)
+
+    response=long_running_recognize(storage_uri, idioma)
+    subtitles= subtitle_generation(response)
 
     '''
     srt_file = "legenda.srt"
@@ -118,7 +136,7 @@ def speechproc():
     '''
 
     blob = bucket_sub.blob(f'{userUid}/{index_manticore}/{file_id}.srt')
-    blob.upload_from_string(data=srt.compose(subs), content_type='application/x-subrip')
+    blob.upload_from_string(data=subtitles, content_type='application/x-subrip')
     blob.metadata = {'x-goog-meta-is-new': 'true'}
     blob.patch()
 
