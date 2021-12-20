@@ -6,6 +6,7 @@ from google.cloud import speech
 from google.cloud import storage
 #import json
 import datetime
+
 '''
 https://stackoverflow.com/questions/54271749/error-with-enable-speaker-diarization-tag-in-google-cloud-speech-to-text?rq=1
 
@@ -14,11 +15,8 @@ so, you need to import that library in order to use that parameter, not the defa
 I did some modifications to your code and works fine for me. Take into account that you need to use a service account to run this code.
 '''
 
-
 def long_running_recognize(storage_uri, idioma):
-    
     client = speech.SpeechClient()
-
     config = {
         "language_code": idioma,
         "sample_rate_hertz": 16000,
@@ -30,12 +28,8 @@ def long_running_recognize(storage_uri, idioma):
         "enable_automatic_punctuation":True
     }
     audio = {"uri": storage_uri}
-
     operation = client.long_running_recognize(config, audio)
-
-    print(u"Waiting for operation to complete...")
     response = operation.result()
-    
     return response
 
 def subtitle_generation(response):
@@ -99,20 +93,12 @@ def subtitle_generation(response):
         except IndexError:
             pass
     
-    # turn transcription list into subtitles
     subtitles = srt.compose(transcriptions)
-
     return subtitles
 
 
-
-#speech_client = speech.SpeechClient()
-#bucket_json = storage.Client().get_bucket('catalobyte-json')
-#bucket_txt = storage.Client().get_bucket('catalobyte-texto')
 bucket_sub = storage.Client().get_bucket('verbana_subs')
-
 app = Flask(__name__)
-
 @app.route("/", methods=["POST"])
 def speechproc():
 
@@ -121,57 +107,17 @@ def speechproc():
     index_manticore = data['index_manticore']
     userUid = data['foldername'] # folder = firebase-uuid do front-end
     file_id = data['file_id'] # id-numerico randomico gerado no front-end e que é a Key do document no firebase arquivos/audios/
-    idioma = data['idioma'];# !! APENAS PARA VERBANA, se for audiolake TEM QUE REMOVER !!
-
+    idioma = data['idioma']
+    trad_idom = data['idiotrad']
     storage_uri = gs_uri #"gs://catalobyte-output/1sPcgixNZobTGi1McrKK7UyaZUd2/o6h0z2g9c7/8445869181/1636311108576.flac"
 
-    response=long_running_recognize(storage_uri, idioma)
-    subtitles= subtitle_generation(response)
-
-    '''
-    srt_file = "legenda.srt"
-    f = open(srt_file, 'w')
-    f.writelines(srt.compose(subs))
-    f.close()
-    '''
+    response = long_running_recognize(storage_uri, idioma)
+    subtitles = subtitle_generation(response)
 
     blob = bucket_sub.blob(f'{userUid}/{index_manticore}/{file_id}.srt')
     blob.upload_from_string(data=subtitles, content_type='application/x-subrip')
-    blob.metadata = {'x-goog-meta-is-new': 'true'}
+    blob.metadata = {'x-goog-meta-is-new': 'true', 'x-goog-meta-item-trad': trad_idom}
     blob.patch()
-
-    '''
-    audio = speech.RecognitionAudio(uri=gs_uri)
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.FLAC,
-        sample_rate_hertz=16000,
-        language_code=idioma,
-        enable_automatic_punctuation=True,
-        enable_speaker_diarization=True,
-        model='default',
-    )
-
-    operation = speech_client.long_running_recognize(config=config, audio=audio)
-    result = operation.result()
-    texto_resp = ""
-    json_saida = []
-    alternative = []
-    for result in result.results:
-        alternative = result.alternatives[0]
-        texto_resp += alternative.transcript
-        texto_resp += " "
-    for word_info in alternative.words:
-        word = word_info.word
-        start_time = word_info.start_time
-        end_time = word_info.end_time
-        json_saida.append({"p":word, "t": start_time.seconds, "s": start_time.total_seconds(), "e": end_time.total_seconds()})
-
-    blob = bucket_json.blob(f'{userUid}/{index_manticore}/{file_id}.json')
-    blob.upload_from_string(data=json.dumps(json_saida),content_type='application/json; charset=utf-8')
-    
-    blob = bucket_txt.blob(f'{userUid}/{index_manticore}/{file_id}.txt')
-    blob.upload_from_string(data=texto_resp,content_type='text/plain')
-    '''
 
     return "ok"
 
